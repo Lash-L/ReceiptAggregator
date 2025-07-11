@@ -35,17 +35,38 @@ def parse_eml(eml_file: str) -> dict | None:
                 # In the current approach, we can just add html as some html gets caught in normal text/plain anyways.
                 # so we can just prune it all at once.
                 charset = part.get_content_charset() or "utf-8"
-                body += part.get_payload(decode=True).decode(charset)
+                try:
+                    body += part.get_payload(decode=True).decode(charset)
+                except UnicodeDecodeError:
+                    # We have the wrong codec or there is a weird character.
+                    ...
     else:
         body = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
     # Remove all html that we can.
     email = {"Subject": msg["Subject"], "From": msg["From"], "Date": msg["Date"]}
+    if not body:
+        return None
     clean_body = cleaner.clean_html(body)
     clean_body = html_regex.sub(r"", link_regex.sub(r"", clean_body))
     # Remove big spaces left behind
     clean_body = re.sub(r"(\n\s*){2,}", "\n", clean_body)
-    email["Body"] = clean_body
-    # Parse out all of the links and any remaining html so that everything else can happen faster.
+    # Find the first thing that can be money and the last thing.
+    lines = clean_body.splitlines()
+    # Find the first and the last line that could be money and make our str equal to +-5 of that location
+    money_pattern = re.compile(r"\$?\d+\.\d+|\$\d+")
+    first_line = -1
+    last_line = len(lines) - 1
+    for i, line in enumerate(lines):
+        match = money_pattern.search(line)
+        if match:
+            if first_line == -1:
+                first_line = i
+            last_line = i
+
+    first_line = 0 if first_line < 5 else first_line - 5
+    last_line = len(lines) - 1 if last_line > len(lines) - 5 else last_line + 5
+    email["Body"] = "\n".join(lines[first_line:last_line])
+
     return email
 
 
@@ -54,6 +75,7 @@ def parse_directory(directory: str) -> list[dict]:
     :param directory: The path of the  directory to parse.
     """
     parsed_emails = []
+    files = []
     total = 0
     for file in os.listdir(directory):
         if file.endswith(".eml"):
@@ -61,4 +83,6 @@ def parse_directory(directory: str) -> list[dict]:
             if parsed_email is not None:
                 total += len(parsed_email["Body"])
                 parsed_emails.append(parsed_email)
-    return parsed_emails
+                files.append(file)
+
+    return parsed_emails, files

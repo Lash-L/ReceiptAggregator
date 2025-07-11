@@ -3,9 +3,11 @@ This document outlines a project to automatically parse email receipts, extract 
 
 ## Step Zero: Data
 
-I got a bunch of data from my email simply by downloading emails with the word 'order' or 'receipt' in them. I got 159 emails that are theoretically the hardest to classify as they are all ones that are very prone to false positives.
+I got a bunch of data from my email simply by downloading emails with the word 'order' or 'receipt' in them by using thunderbird. Most are pruned by the rule extractor, then some are pruned based on their age.
 
-I got my transactions exported as a csv from Monarch Money.
+I had about 3000 emails that were caught by that filter, only 500 of them were actually receipts, and only about 80 of those were actually receipts.
+
+Originally, I got my transactions exported as a csv from Monarch Money. Now, I use the unofficial Monarch Money API.
 
 ## Step 1: Loading and Pre-processing
 Option A) The built-in Python email library: This approach avoids external dependencies but is noticeably slower.
@@ -33,11 +35,9 @@ I did not do it for this project, but it would make sense to add some more concr
 I was able to add a few new rules and I got my roc curve to .99. This means this model is really accurate (for my testing data), I would want a much bigger dataset to know for sure.
 
 ## Step Three: Extracting the data
-In my eyes, a LLM makes sense to solve this part of the problem as receipts can come in so many formats, training any kind of model or fuzzy matcher would be pretty difficult. However, this step takes a little bit longer since we are using a LLM. That's why we only are doing it AFTER we determine what is or isn't a receipt.
+In my eyes, a LLM makes sense to solve this part of the problem as receipts can come in so many formats, training any kind of model or fuzzy matcher would be pretty difficult(but possible just very time consuming). However, this step takes a little bit longer since we are using a LLM. That's why we only are doing it AFTER we determine what is or isn't a receipt.
 
-I wanted to use a local model for this part, as it is reoccurring, so it would make sense to limit the cost associated. I picked gemma3:4b as it can run 'okay' on my machine. It unfortunately has a few points where it falls short, but that could be improved by further limiting the context that we are passing in, finding ways to shorten emails, etc.
-
-Alternatively, I do believe gemma3:27b would be able to handle this problem with no issues, but gemma3:12b would probably be alright as well.
+I wanted to use a local model for this part, as it is reoccurring, so it would make sense to limit the cost associated. I have been using mistral:7b due to its balance of speed and size and it runs well on my computer. But something like Qwen3-30B A3B runs decently and gives much better results. On better hardware, I would definitely use that model instead.
 
 There are a few things we want:
 1) The Total bill amount
@@ -52,14 +52,19 @@ There are a few things we want:
 
 Now that we have a list of items, and their itemized breakdown, we can make our csv report much more helpful.
 
-We start by searching for data in the csv using polars - looking for any data that has a matching charge and is within 5 days. The 5 days part is important as sometimes it will take a few days for the transaction to post.
+We use the Monarch API to search for transactions within our date range and with a matching bill amount.
 
 Then, we do a fuzzy match on the merchant via jaro_distance. If all of these things match, we are good to go!
 
-Now we simply update the csv with all the relevant data!
+Now we call the api and update the Notes and the tags!
+
+![monarch_receipt_aggregator.png](monarch_receipt_aggregator.png)
+
+![updated_transaction.png](updated_transaction.png)
 
 ## Improvements
 
+- Do an initial search to get all transactions within +- 5 days from the date on the email, then do a fuzzy match of all of those options. If there is no similar transaction, we don't need to waste time using the LLM.
 - Using a more powerful extractor LLM would make a lot of sense. Potentially trying with something like gemini 2.5 flash as a baseline first and then moving down in power.
 - Skip or figure out how to parse dates for forwarded emails. That was the case for a lot of my receipts, as I forwarded them to someone else.
 - Improve rule classifier to have explicit 'we know this is always a receipt' rules (i.e. specific email addresses from some big chains.)
